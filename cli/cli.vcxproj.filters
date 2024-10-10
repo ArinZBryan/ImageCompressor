@@ -18,9 +18,6 @@
     <ClCompile Include="cli.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="bitstream.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="colorconverter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -29,9 +26,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="bitstream.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="colorconverter.h">
       <Filter>Header Files</Filter>
     </ClInclude>

@@ -32,19 +32,16 @@ enum class CompressedImagePaletteFormat {
 	colourFull = 0x80
 };
 
-struct RLEHelper {
-	uint32_t value;
-	uint32_t bits;
-	uint32_t repeats;
-};
-
 struct CompressedImage {
+	char identifier[4];
+	uint32_t version;
 	uint32_t imageSize;
 	uint16_t width;
 	uint16_t height;
 	uint32_t imageDataSizeBytes;
 	CompressedImageColourFormat colourFormat;
-	uint8_t	rleLength;
+	uint8_t	unitLength;
+	uint8_t packedLength;
 	uint8_t paletteSize;
 	uint16_t paletteSizeBytes;
 	CompressedImagePaletteFormat paletteColourFormat;

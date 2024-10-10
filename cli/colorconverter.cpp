@@ -1,5 +1,5 @@
-#include <math.h>
 #include <type_traits>
+#include <math.h>
 #include "colorconverter.h"
 
 namespace gdip = Gdiplus;
