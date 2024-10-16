@@ -1,5 +1,13 @@
 #pragma once
-#include "pch.h"
+#include "framework.h"
+#include <optional>
+#include <variant>
+#include <unordered_map>
+#include <memory>
+#include <string>
+#include <cstring>
+#include <cerrno>
+#include <iostream>
 
 struct CLIArg {
 	char shortName[3];			//-[any char]

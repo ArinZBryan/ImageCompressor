@@ -43,7 +43,9 @@ struct CompressedImage {
 	uint8_t	unitLength;
 	uint8_t packedLength;
 	uint8_t paletteSize;
+	uint8_t padding1;
 	uint16_t paletteSizeBytes;
+	uint16_t padding2;
 	CompressedImagePaletteFormat paletteColourFormat;
 	void* palette;
 	void* imageData;

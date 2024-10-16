@@ -1,4 +1,7 @@
 #pragma once
+#ifndef COLOR_CONVERTER
+#define COLOR_CONVERTER
+#include <windows.h>
 #include <gdiplus.h>
 #include <stdint.h>
 
@@ -40,3 +43,4 @@ public:
 	greyscale3_t toGreyscale3Bit();
 	greyscale4_t toGreyscale4Bit();
 };
+#endif

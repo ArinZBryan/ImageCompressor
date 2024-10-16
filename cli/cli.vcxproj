@@ -135,11 +135,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\libCLI\libCLI.cpp" />
     <ClCompile Include="cli.cpp" />
     <ClCompile Include="colorconverter.cpp" />
     <ClCompile Include="wingdiputils.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\libCLI\libCLI.h" />
     <ClInclude Include="colorconverter.h" />
     <ClInclude Include="cli.h" />
     <ClInclude Include="wingdiputils.h" />

@@ -24,6 +24,9 @@
     <ClCompile Include="wingdiputils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\libCLI\libCLI.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="colorconverter.h">
@@ -33,6 +36,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="wingdiputils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\libCLI\libCLI.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

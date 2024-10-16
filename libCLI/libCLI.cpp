@@ -1,8 +1,3 @@
-// libCLI.cpp : Defines the functions for the static library.
-//
-
-#include "pch.h"
-#include "framework.h"
 #include "libCLI.h"
 
 std::string cliargtoa(CLIArg arg) {
