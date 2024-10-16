@@ -21,13 +21,11 @@ struct CLIArg cliArgCfg[] = {
 };
 const char* defaultArgv[] = {
 	"-s",
-	"C:\\Users\\arinb\\source\\repos\\ImageCompressor\\Tests\\large\\source_engine.bmp",
+	"C:\\Users\\arinb\\source\\repos\\ImageCompressor\\Tests\\small\\small_greyscale_24bpp.bmp",
 	"-c",
-	"pi4",
-	"-p",
-	"c24",
+	"c555r1",
 	"-d",
-	"C:\\Users\\arinb\\source\\repos\\ImageCompressor\\Tests\\large\\source_engine.rlei"
+	"C:\\Users\\arinb\\source\\repos\\ImageCompressor\\Tests\\small\\small_greyscale_24bpp.rlei"
 };
 
 template<typename T, typename... Types>
@@ -125,6 +123,10 @@ void printVectorInt(std::vector<T> vec, int width) {
 	}
 }
 
+//TODO:	I have a sneaking suspicion that this function is doing something horribly wrong, but I really, _really_ don't want to spend
+//		the time debugging this bit by bit. If it comes down to it, then I might have to though. I'm kinda hoping that I just didnt
+//		copy it right from the test solution on the small laptop. 
+//		Please god let it be something else or some easy soltion so help me god, I will commit genocide
 bitvector runLengthEncode(bitvector& bits, int unitLength, int packLength) {
 	if (packLength < unitLength) { return bitvector(0); }
 	size_t packingSpace = packLength - unitLength;
@@ -221,6 +223,9 @@ std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> allocatePalette(size_t 
 	palette->Flags = flags;
 	return std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter>(palette);
 }
+
+//TODO:	Check that these three functions are doing what they should be, because the palette is completely corrupted. If it's all good then
+//		The issue is probably something in the RLE function. 
 std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> makeSmallOptimalPalette(size_t maxSize, gdip::Bitmap& image, bool imageIsGreyscale) {
 
 	if (maxSize > 256) { maxSize = 256; } //Image Palettes larger than 256 are not supported.
@@ -245,13 +250,14 @@ std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> makeSmallOptimalPalette
 		}
 	}
 
-	// Unlock the bitmap
 	image.UnlockBits(&bitmapData);
 
 	if (uniqueColors.size() < 1 || maxSize < 1) {
 		return nullptr;
 	}
 	auto palette = allocatePalette(static_cast<int>(min(maxSize, uniqueColors.size())), imageIsGreyscale ? gdip::PaletteFlagsGrayScale : 0);
+	// TODO:	Check that this is actually generating sane palettes. Especially for small images, or images right on the limit of the available size
+	//			We have no guarentee. I'm fairly certain this isn't the problem but it never hurts to check.
 	gdip::Bitmap::InitializePalette(palette.get(), gdip::PaletteTypeOptimal, min(maxSize, uniqueColors.size()), false, &image);
 
 	return palette;
