@@ -25,23 +25,6 @@ std::string cliargtoa(CLIArg arg) {
 	return ret;
 }
 
-// TODO: This shit doesn't fit the brief.
-// This function should return a std::unordered_map of _all_ the CLIArgs, with the optional fields set as such.
-
-/*	Example Implementation:
-*		Consider making the input a std::unordered_map<std::string, CLIArg>, where all the optional fields are set to null.
-*		
-		This is functionally identical to the current setup, except that the array is swapped out for a std::unordered_map.
-		Each key is the fully qualified --name, and the values are the same as they are now.
-*		
-		This function then is mostly the same, except that it returns void, modifying the existing std::unordered_map passed
-*		to it. Instead of creating a new map, and adding any found arguments, we check first to see if the fully qualified 
-*		name is in argv, and if not, then we check for the shorthand. If it is, then we perform the same parsing already here.
-*		Then, if a match is found, we modify the existing value with the value passed in by the user. We don't return anything,
-*		just modify the existing map. Perhaps this could be a std::unordered_map<std::string, CLIArg>& ? A pointer seems a
-*		little overkill here?
-*/
-
 std::unordered_map<std::string, CLIArg> parseArgs(int argc, const char** argv, int argLen, const CLIArg* argList) {
 	std::unordered_map<std::string, CLIArg> ret;
 	for (int argumentNo = 0; argumentNo < argc; argumentNo++) {

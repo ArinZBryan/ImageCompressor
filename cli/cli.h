@@ -47,6 +47,7 @@ struct CompressedImage {
 	uint16_t paletteSizeBytes;
 	uint16_t padding2;
 	CompressedImagePaletteFormat paletteColourFormat;
+	uint32_t padding3;
 	void* palette;
 	void* imageData;
 };
