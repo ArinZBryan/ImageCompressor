@@ -256,12 +256,9 @@ std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> makeSmallOptimalPalette
 		return nullptr;
 	}
 	auto palette = allocatePalette(static_cast<int>(min(maxSize, uniqueColors.size())), imageIsGreyscale ? gdip::PaletteFlagsGrayScale : 0);
-	//TODO: When using the pi4 colour type, on the 16 colour greyscale test images, it merges two pixels colours
-	//		Why tf this happens is beyond me, but I don't think it's the RLE algorithm, so it must be generating
-	//		_slightly_ fucked palettes. But only slightly. Fuck you microsoft. For your lack of documentation and
-	//		_slightly_ broken library functions.
-	gdip::Bitmap::InitializePalette(palette.get(), gdip::PaletteTypeOptimal, min(maxSize, uniqueColors.size()), false, &image);
 
+	gdip::Bitmap::InitializePalette(palette.get(), gdip::PaletteTypeOptimal, min(maxSize, uniqueColors.size()), false, &image);
+	
 	return palette;
 }
 bitvector makeOutputPalette(std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter>& inputPalette, CompressedImagePaletteFormat paletteFormat) {
@@ -667,14 +664,47 @@ int main(int argc, const char** argv)
 	}
 	case CompressedImageColourFormat::packedIndex4Bit: {
 		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(paletteSize, *bitmap, false);
-		bitmap->ConvertFormat(PixelFormat8bppIndexed, gdip::DitherTypeSolid, gdip::PaletteTypeCustom, extractedPalette.get(), 0);
 		outputPalette = makeOutputPalette(extractedPalette, paletteFormatDesired);
+		
+		//I've fixed the palette issues, but now the same issue crops up again here. Even though the palettes are
+		//correct, bitmap->ConvertFormat seems to just be being stupid here. When we use gdip::DitherTypeNone
+		//It doesn't convert the format at all, and when we use gdip::DitherTypeSolid, it produces the output file
+		//With rounding. 
+
+		//TODO: Copy the old check for same-size palettes from makeSmallOptimalPalette to here. If it is true,
+		//		The use makePaletteLUT to make a set of ARGB colours, and manually perform the format conversion.
+		//		-> makePaletteLUT (or simmilar, maybe modify the function) on extractedPalette
+		//		-> convert to ARGB Format (via gdip)
+		//		-> convert the image to indexed colour manually using the resultant set
+		//		-> convert the palette to the required format (makeOutputPalette)
+		bitmap->ConvertFormat(PixelFormat8bppIndexed, gdip::DitherTypeSolid, gdip::PaletteTypeCustom, extractedPalette.get(), 0);
 		bitmap->LockBits(&rect, gdip::ImageLockModeRead, bitmap->GetPixelFormat(), &bitmapData);
+
+		std::cout << "Small Optimal Palette Values: " << std::hex;
+		for (int i = 0; i < extractedPalette.get()->Count; i++) {
+			std::cout << extractedPalette.get()->Entries[i] << " ";
+		}
+
+		std::cout << std::endl << "Output Palette: ";
+		auto tmp = outputPalette.dump();
+		for (int i = 0; i < tmp.size(); i++) {
+			std::cout << static_cast<int>(tmp[i]) << " ";
+		}
+
+		std::cout << std::endl << "Image Data: ";
+		for (int i = 0; i < bitmapData.Height * bitmapData.Stride; i++) {
+			std::cout << static_cast<int>(static_cast<uint8_t*>(bitmapData.Scan0)[i]) << " ";
+		}
+
+
 		for (int y = 0; y < bitmapData.Height; y++) {
 			for (int x = 0; x < bitmapData.Width; x++) {
 				rawDataStream.push_many_back(*(static_cast<uint8_t*>(bitmapData.Scan0) + y * bitmapData.Stride + x), 4);
 			}
 		}
+
+		
+
 		break;
 	}
 	case CompressedImageColourFormat::index8Bit: {
@@ -690,13 +720,8 @@ int main(int argc, const char** argv)
 	}
 	}
 
+
 	rledDataStream = runLengthEncode(rawDataStream, unitLength, packedLength);
-
-	uint8_t* paletteData = static_cast<uint8_t*>(malloc(outputPalette.byte_size()));
-	uint8_t* imageData = static_cast<uint8_t*>(malloc(rawDataStream.byte_size()));
-
-	paletteData = outputPalette.dump(paletteData, outputPalette.byte_size());
-	imageData = rledDataStream.dump(imageData, rawDataStream.byte_size());
 
 	struct CompressedImage finalFile;
 	finalFile.identifier[0] = 'R';
@@ -717,8 +742,8 @@ int main(int argc, const char** argv)
 	finalFile.padding2 = 0;
 	finalFile.paletteColourFormat = paletteFormatDesired;
 	finalFile.padding3 = 0;
-	finalFile.palette = paletteData;
-	finalFile.imageData = imageData;
+	finalFile.palette = nullptr;
+	finalFile.imageData = nullptr;
 
 	CLIArg outputFileNameArg = cliArgs.at("--destination");
 	std::string outputFileName;
@@ -735,8 +760,6 @@ int main(int argc, const char** argv)
 	outputFile.write(reinterpret_cast<const char*>(imgOut.data()), imgOut.size());
 	outputFile.close();
 
-	free(paletteData);
-	free(imageData);
 	bitvector().swap(outputPalette);
 	bitvector().swap(rledDataStream);
 

@@ -39,9 +39,12 @@ ConvertibleColour* ConvertibleColour::fromColour6Bit(colour6_t colour) {
 	return this;
 }
 ConvertibleColour* ConvertibleColour::fromColourARGB(Gdiplus::ARGB colour) {
-	red = (colour >> 16) & 0xFF;	// Extract the Red channel
-	green = (colour >> 8) & 0xFF;  // Extract the Green channel
-	blue = colour & 0xFF;			// Extract the Blue channel (least significant byte)
+	uint32_t rawred = (static_cast<uint32_t>(colour) & 0x00FF0000) >> 16;	// Extract the Red channel
+	uint32_t rawgreen = (static_cast<uint32_t>(colour) & 0x0000FF00) >> 8;	// Extract the Green channel
+	uint32_t rawblue = (static_cast<uint32_t>(colour) & 0x000000FF) >> 0;			// Extract the Blue channel (least significant byte)
+	red = rawred / 255.0;
+	green = rawgreen / 255.0;
+	blue = rawblue / 255.0;
 	return this;
 }
 ConvertibleColour* ConvertibleColour::fromGreyscale2Bit(greyscale2_t value) {
