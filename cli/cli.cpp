@@ -323,27 +323,79 @@ bitvector makeOutputPalette(std::unique_ptr<gdip::ColorPalette, ColorPaletteDele
 	}
 	return palette;
 }
-std::set<bitvector> makePaletteLUT(bitvector palette, CompressedImagePaletteFormat format) {
-	std::set<bitvector> LUT;
-	auto paletteIter = palette.cbegin();
-	size_t formatSize = 0;
-	switch (format) {
-	case CompressedImagePaletteFormat::greyscale2Bit: formatSize = 2; break;
-	case CompressedImagePaletteFormat::greyscale3Bit: formatSize = 3; break;
-	case CompressedImagePaletteFormat::greyscale4Bit: formatSize = 4; break;
-	case CompressedImagePaletteFormat::colour3Bit: formatSize = 3; break;
-	case CompressedImagePaletteFormat::colour6Bit: formatSize = 6; break;
-	case CompressedImagePaletteFormat::colour555: formatSize = 16; break;
-	case CompressedImagePaletteFormat::colour565: formatSize = 16; break;
-	case CompressedImagePaletteFormat::colourFull: formatSize = 24; break;
-	}
-	while (paletteIter + formatSize < palette.end()) {
-		bitvector slice = bitvector(paletteIter, paletteIter + formatSize);
-		LUT.insert(slice);
-		paletteIter += formatSize;
+std::set<gdip::ARGB> makePaletteLUT(gdip::ColorPalette* palette) {
+	std::set<gdip::ARGB> LUT;
+	auto paletteIter = palette->Entries;
+	size_t formatSize = 32;	//gdip::ColorPalettes are always stored using gdip::ARGB, which is an alias for uint32_t 
+	for (int i = 0; i < palette->Count; i++) {
+		gdip::ARGB colour = static_cast<gdip::ARGB*>(palette->Entries)[i];
+		LUT.insert(colour);
 	}
 	return LUT;
 }
+std::set<gdip::ARGB> getImageColours(gdip::Bitmap* bitmap) {
+
+	std::set<gdip::ARGB> LUT;
+	bitmap->ConvertFormat(PixelFormat32bppARGB, gdip::DitherTypeNone, gdip::PaletteTypeCustom, nullptr, 0);
+	gdip::BitmapData bitmapData;
+	gdip::Rect rect(0, 0, bitmap->GetWidth(), bitmap->GetHeight());
+	bitmap->LockBits(&rect, gdip::ImageLockModeRead, bitmap->GetPixelFormat(), &bitmapData);
+
+	for (int y = 0; y < bitmapData.Height; y++) {
+		for (int x = 0; x < bitmapData.Width; x++) {
+			gdip::ARGB colour = *(static_cast<gdip::ARGB*>(bitmapData.Scan0) + y * bitmapData.Stride + x);
+			LUT.insert(colour);
+		}
+	}
+	return LUT;
+}
+
+struct indexedImage {
+	bitvector palette;
+	CompressedImagePaletteFormat paletteFormat;
+	size_t paletteBitWidth;
+	bitvector image;
+};
+indexedImage convertBitmapToFullPalette(gdip::Bitmap* bitmap, size_t paletteBitWidth, CompressedImagePaletteFormat paletteFormatDesired) {
+	bitmap->ConvertFormat(PixelFormat32bppARGB, gdip::DitherTypeNone, gdip::PaletteTypeCustom, nullptr, 0);
+	std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(1 << paletteBitWidth, *bitmap, false);
+	bitvector outputPalette = makeOutputPalette(extractedPalette, paletteFormatDesired);
+	
+	gdip::BitmapData bitmapData;
+	gdip::Rect rect(0, 0, bitmap->GetWidth(), bitmap->GetHeight());
+	bitmap->LockBits(&rect, gdip::ImageLockModeRead, bitmap->GetPixelFormat(), &bitmapData);
+
+	bitvector convertedBitmap = bitvector(bitmapData.Width * bitmapData.Height * 8);
+	auto paletteLUT = makePaletteLUT(extractedPalette.get()); //This _should_ preserve the ordering of the palette.
+	for (int x = 0; x < bitmapData.Width; x++) for (int y = 0; y < bitmapData.Height; y++) {
+		gdip::ARGB col = *(static_cast<gdip::ARGB*>(bitmapData.Scan0) + y * bitmapData.Stride + x);
+		auto iter = paletteLUT.find(col);
+		int index = std::distance(paletteLUT.begin(), iter);
+		convertedBitmap.push_many_back(index, paletteBitWidth);
+	}
+	return { outputPalette, paletteFormatDesired, paletteBitWidth, convertedBitmap };
+
+}
+indexedImage convertBitmapToPalette(gdip::Bitmap* bitmap, size_t paletteBitWidth, CompressedImagePaletteFormat paletteFormatDesired) {
+	bitmap->ConvertFormat(PixelFormat32bppARGB, gdip::DitherTypeNone, gdip::PaletteTypeCustom, nullptr, 0);
+	std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(1 << paletteBitWidth, *bitmap, false);
+	bitvector outputPalette = makeOutputPalette(extractedPalette, paletteFormatDesired);
+
+	bitmap->ConvertFormat(PixelFormat8bppIndexed, gdip::DitherTypeSolid, gdip::PaletteTypeCustom, extractedPalette.get(), 0);
+	gdip::BitmapData bitmapData;
+	gdip::Rect rect(0, 0, bitmap->GetWidth(), bitmap->GetHeight());
+	bitmap->LockBits(&rect, gdip::ImageLockModeRead, bitmap->GetPixelFormat(), &bitmapData);
+
+	bitvector convertedBitmap = bitvector(bitmapData.Width * bitmapData.Height * 8);
+
+	for (int y = 0; y < bitmapData.Height; y++) {
+		for (int x = 0; x < bitmapData.Width; x++) {
+			convertedBitmap.push_many_back(*(static_cast<uint8_t*>(bitmapData.Scan0) + y * bitmapData.Stride + x), 4);
+		}
+	}
+	return { outputPalette, paletteFormatDesired, paletteBitWidth, convertedBitmap };
+}
+
 
 int main(int argc, const char** argv)
 {
@@ -406,8 +458,6 @@ int main(int argc, const char** argv)
 
 	bitmap->UnlockBits(&bitmapData);
 
-	
-
 	//Resize image if necessary
 	int widthDesired = bitmap->GetWidth(), heightDesired = bitmap->GetHeight(), resize = 0;
 	if (cliArgs.contains("--width")) {
@@ -440,29 +490,29 @@ int main(int argc, const char** argv)
 	std::string colourFormatString;
 	uint8_t packedLength = 0;
 	uint8_t unitLength = 0;
-	uint8_t paletteSize = 0;
+	uint8_t paletteBitWidth = 0;
 	if (!getFromVariantOptional(colourFormat.value, &colourFormatString)) {
 		std::cerr << "[Error] Invalid Colour Format" << std::endl;
 		return 1;
 	}
 	CompressedImageColourFormat colourFormatDesired;
-	if (colourFormatString == "pi1") { colourFormatDesired = CompressedImageColourFormat::packedIndexBit; packedLength = 8; unitLength = 1;  paletteSize = 2; }
-	else if (colourFormatString == "pi2") { colourFormatDesired = CompressedImageColourFormat::packedIndex2Bit; packedLength = 8; unitLength = 2;  paletteSize = 4; }
-	else if (colourFormatString == "pi4") { colourFormatDesired = CompressedImageColourFormat::packedIndex4Bit; packedLength = 8; unitLength = 4;  paletteSize = 16; }
-	else if (colourFormatString == "i8r1") { colourFormatDesired = CompressedImageColourFormat::index8Bit; packedLength = 16; unitLength = 8;  paletteSize = 256; }
-	else if (colourFormatString == "i8r2") { colourFormatDesired = CompressedImageColourFormat::index8Bit; packedLength = 24; unitLength = 8;  paletteSize = 256; }
-	else if (colourFormatString == "pg1") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale1Bit; packedLength = 8; unitLength = 1; paletteSize = 0; }
-	else if (colourFormatString == "pg2") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale2Bit; packedLength = 8; unitLength = 2; paletteSize = 0; }
-	else if (colourFormatString == "pc3") { colourFormatDesired = CompressedImageColourFormat::packedColour3Bit; packedLength = 8; unitLength = 3;  paletteSize = 0; }
-	else if (colourFormatString == "pg3") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale3Bit; packedLength = 8; unitLength = 3; paletteSize = 0; }
-	else if (colourFormatString == "pg4") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale4Bit; packedLength = 8; unitLength = 4; paletteSize = 0; }
-	else if (colourFormatString == "pc6") { colourFormatDesired = CompressedImageColourFormat::packedColour6Bit; packedLength = 8; unitLength = 6;  paletteSize = 0; }
-	else if (colourFormatString == "c555r1") { colourFormatDesired = CompressedImageColourFormat::colour555; packedLength = 24; unitLength = 16;  paletteSize = 0; }
-	else if (colourFormatString == "c555r2") { colourFormatDesired = CompressedImageColourFormat::colour555; packedLength = 32; unitLength = 16;  paletteSize = 0; }
-	else if (colourFormatString == "c565r1") { colourFormatDesired = CompressedImageColourFormat::colour565; packedLength = 24; unitLength = 16;  paletteSize = 0; }
-	else if (colourFormatString == "c565r2") { colourFormatDesired = CompressedImageColourFormat::colour565; packedLength = 32; unitLength = 16;  paletteSize = 0; }
-	else if (colourFormatString == "c24r1") { colourFormatDesired = CompressedImageColourFormat::colourFull; packedLength = 32; unitLength = 24;  paletteSize = 0; }
-	else if (colourFormatString == "c24r2") { colourFormatDesired = CompressedImageColourFormat::colourFull; packedLength = 40; unitLength = 24;  paletteSize = 0; }
+	if (colourFormatString == "pi1") { colourFormatDesired = CompressedImageColourFormat::packedIndexBit; packedLength = 8; unitLength = 1;  paletteBitWidth = 1; }
+	else if (colourFormatString == "pi2") { colourFormatDesired = CompressedImageColourFormat::packedIndex2Bit; packedLength = 8; unitLength = 2;  paletteBitWidth = 2; }
+	else if (colourFormatString == "pi4") { colourFormatDesired = CompressedImageColourFormat::packedIndex4Bit; packedLength = 8; unitLength = 4;  paletteBitWidth = 4; }
+	else if (colourFormatString == "i8r1") { colourFormatDesired = CompressedImageColourFormat::index8Bit; packedLength = 16; unitLength = 8;  paletteBitWidth = 8; }
+	else if (colourFormatString == "i8r2") { colourFormatDesired = CompressedImageColourFormat::index8Bit; packedLength = 24; unitLength = 8;  paletteBitWidth = 8; }
+	else if (colourFormatString == "pg1") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale1Bit; packedLength = 8; unitLength = 1; paletteBitWidth = 0; }
+	else if (colourFormatString == "pg2") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale2Bit; packedLength = 8; unitLength = 2; paletteBitWidth = 0; }
+	else if (colourFormatString == "pc3") { colourFormatDesired = CompressedImageColourFormat::packedColour3Bit; packedLength = 8; unitLength = 3;  paletteBitWidth = 0; }
+	else if (colourFormatString == "pg3") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale3Bit; packedLength = 8; unitLength = 3; paletteBitWidth = 0; }
+	else if (colourFormatString == "pg4") { colourFormatDesired = CompressedImageColourFormat::packedGreyscale4Bit; packedLength = 8; unitLength = 4; paletteBitWidth = 0; }
+	else if (colourFormatString == "pc6") { colourFormatDesired = CompressedImageColourFormat::packedColour6Bit; packedLength = 8; unitLength = 6;  paletteBitWidth = 0; }
+	else if (colourFormatString == "c555r1") { colourFormatDesired = CompressedImageColourFormat::colour555; packedLength = 24; unitLength = 16;  paletteBitWidth = 0; }
+	else if (colourFormatString == "c555r2") { colourFormatDesired = CompressedImageColourFormat::colour555; packedLength = 32; unitLength = 16;  paletteBitWidth = 0; }
+	else if (colourFormatString == "c565r1") { colourFormatDesired = CompressedImageColourFormat::colour565; packedLength = 24; unitLength = 16;  paletteBitWidth = 0; }
+	else if (colourFormatString == "c565r2") { colourFormatDesired = CompressedImageColourFormat::colour565; packedLength = 32; unitLength = 16;  paletteBitWidth = 0; }
+	else if (colourFormatString == "c24r1") { colourFormatDesired = CompressedImageColourFormat::colourFull; packedLength = 32; unitLength = 24;  paletteBitWidth = 0; }
+	else if (colourFormatString == "c24r2") { colourFormatDesired = CompressedImageColourFormat::colourFull; packedLength = 40; unitLength = 24;  paletteBitWidth = 0; }
 	else {
 		colourFormatDesired = CompressedImageColourFormat::colour565;
 		std::cout << "[Info] No colour format supplied, using 16-bit 565 colour, with a run-length of 1" << std::endl;
@@ -638,85 +688,69 @@ int main(int argc, const char** argv)
 		break;
 	}
 	case CompressedImageColourFormat::packedIndexBit: {
-		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(paletteSize, *bitmap, false);
-		bitmap->ConvertFormat(PixelFormat8bppIndexed, gdip::DitherTypeSolid, gdip::PaletteTypeCustom, extractedPalette.get(), 0);
-		outputPalette = makeOutputPalette(extractedPalette, paletteFormatDesired);
-		std::set<bitvector> paletteLUT = makePaletteLUT(outputPalette, paletteFormatDesired);
-		bitmap->LockBits(&rect, gdip::ImageLockModeRead, bitmap->GetPixelFormat(), &bitmapData);
-		for (int y = 0; y < bitmapData.Height; y++) {
-			for (int x = 0; x < bitmapData.Width; x++) {
-				rawDataStream.push_back(*(static_cast<uint8_t*>(bitmapData.Scan0) + y * bitmapData.Stride + x));
-			}
+		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(1 << static_cast<uint32_t>(paletteBitWidth), *bitmap, false);
+		std::set<gdip::ARGB> imgPaletteLUT = getImageColours(bitmap);
+		std::set<gdip::ARGB> outPaletteLUT = makePaletteLUT(extractedPalette.get());
+
+		struct indexedImage resultImage;
+
+		if (imgPaletteLUT.size() >= outPaletteLUT.size()) {
+			resultImage = convertBitmapToPalette(bitmap, paletteBitWidth, paletteFormatDesired);
 		}
-		break;
+		else {
+			resultImage = convertBitmapToFullPalette(bitmap, paletteBitWidth, paletteFormatDesired);
+		}
+		rawDataStream = resultImage.image;
+		outputPalette = resultImage.palette;
 	}
 	case CompressedImageColourFormat::packedIndex2Bit: {
-		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(paletteSize, *bitmap, false);
-		bitmap->ConvertFormat(PixelFormat8bppIndexed, gdip::DitherTypeSolid, gdip::PaletteTypeCustom, extractedPalette.get(), 0);
-		outputPalette = makeOutputPalette(extractedPalette, paletteFormatDesired);
-		bitmap->LockBits(&rect, gdip::ImageLockModeRead, bitmap->GetPixelFormat(), &bitmapData);
-		for (int y = 0; y < bitmapData.Height; y++) {
-			for (int x = 0; x < bitmapData.Width; x++) {
-				rawDataStream.push_many_back(*(static_cast<uint8_t*>(bitmapData.Scan0) + y * bitmapData.Stride + x),2);
-			}
+		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(1 << static_cast<uint32_t>(paletteBitWidth), *bitmap, false);
+		std::set<gdip::ARGB> imgPaletteLUT = getImageColours(bitmap);
+		std::set<gdip::ARGB> outPaletteLUT = makePaletteLUT(extractedPalette.get());
+
+		struct indexedImage resultImage;
+
+		if (imgPaletteLUT.size() >= outPaletteLUT.size()) {
+			resultImage = convertBitmapToPalette(bitmap, paletteBitWidth, paletteFormatDesired);
 		}
-		break;
+		else {
+			resultImage = convertBitmapToFullPalette(bitmap, paletteBitWidth, paletteFormatDesired);
+		}
+		rawDataStream = resultImage.image;
+		outputPalette = resultImage.palette;
 	}
 	case CompressedImageColourFormat::packedIndex4Bit: {
-		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(paletteSize, *bitmap, false);
-		outputPalette = makeOutputPalette(extractedPalette, paletteFormatDesired);
+		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(1 << static_cast<uint32_t>(paletteBitWidth), *bitmap, false);
+		std::set<gdip::ARGB> imgPaletteLUT = getImageColours(bitmap);
+		std::set<gdip::ARGB> outPaletteLUT = makePaletteLUT(extractedPalette.get());
 		
-		//I've fixed the palette issues, but now the same issue crops up again here. Even though the palettes are
-		//correct, bitmap->ConvertFormat seems to just be being stupid here. When we use gdip::DitherTypeNone
-		//It doesn't convert the format at all, and when we use gdip::DitherTypeSolid, it produces the output file
-		//With rounding. 
-
-		//TODO: Copy the old check for same-size palettes from makeSmallOptimalPalette to here. If it is true,
-		//		The use makePaletteLUT to make a set of ARGB colours, and manually perform the format conversion.
-		//		-> makePaletteLUT (or simmilar, maybe modify the function) on extractedPalette
-		//		-> convert to ARGB Format (via gdip)
-		//		-> convert the image to indexed colour manually using the resultant set
-		//		-> convert the palette to the required format (makeOutputPalette)
-		bitmap->ConvertFormat(PixelFormat8bppIndexed, gdip::DitherTypeSolid, gdip::PaletteTypeCustom, extractedPalette.get(), 0);
-		bitmap->LockBits(&rect, gdip::ImageLockModeRead, bitmap->GetPixelFormat(), &bitmapData);
-
-		std::cout << "Small Optimal Palette Values: " << std::hex;
-		for (int i = 0; i < extractedPalette.get()->Count; i++) {
-			std::cout << extractedPalette.get()->Entries[i] << " ";
-		}
-
-		std::cout << std::endl << "Output Palette: ";
-		auto tmp = outputPalette.dump();
-		for (int i = 0; i < tmp.size(); i++) {
-			std::cout << static_cast<int>(tmp[i]) << " ";
-		}
-
-		std::cout << std::endl << "Image Data: ";
-		for (int i = 0; i < bitmapData.Height * bitmapData.Stride; i++) {
-			std::cout << static_cast<int>(static_cast<uint8_t*>(bitmapData.Scan0)[i]) << " ";
-		}
-
-
-		for (int y = 0; y < bitmapData.Height; y++) {
-			for (int x = 0; x < bitmapData.Width; x++) {
-				rawDataStream.push_many_back(*(static_cast<uint8_t*>(bitmapData.Scan0) + y * bitmapData.Stride + x), 4);
-			}
-		}
-
+		struct indexedImage resultImage;
 		
+		if (imgPaletteLUT.size() >= outPaletteLUT.size()) {
+			resultImage = convertBitmapToPalette(bitmap, paletteBitWidth, paletteFormatDesired);
+		} else { 
+			resultImage = convertBitmapToFullPalette(bitmap, paletteBitWidth, paletteFormatDesired);
+		}
+		rawDataStream = resultImage.image;
+		outputPalette = resultImage.palette;
 
 		break;
 	}
 	case CompressedImageColourFormat::index8Bit: {
-		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(paletteSize, *bitmap, false);
-		bitmap->ConvertFormat(PixelFormat8bppIndexed, gdip::DitherTypeSolid, gdip::PaletteTypeCustom, extractedPalette.get(), 0);
-		outputPalette = makeOutputPalette(extractedPalette, paletteFormatDesired);
-		for (int y = 0; y < bitmapData.Height; y++) {
-			for (int x = 0; x < bitmapData.Width; x++) {
-				rawDataStream.push_many_back(*(static_cast<uint8_t*>(bitmapData.Scan0) + y * bitmapData.Stride + x), 8);
-			}
+		std::unique_ptr<gdip::ColorPalette, ColorPaletteDeleter> extractedPalette = makeSmallOptimalPalette(1 << static_cast<uint32_t>(paletteBitWidth), *bitmap, false);
+		std::set<gdip::ARGB> imgPaletteLUT = getImageColours(bitmap);
+		std::set<gdip::ARGB> outPaletteLUT = makePaletteLUT(extractedPalette.get());
+
+		struct indexedImage resultImage;
+
+		if (imgPaletteLUT.size() >= outPaletteLUT.size()) {
+			resultImage = convertBitmapToPalette(bitmap, paletteBitWidth, paletteFormatDesired);
 		}
-		break;
+		else {
+			resultImage = convertBitmapToFullPalette(bitmap, paletteBitWidth, paletteFormatDesired);
+		}
+		rawDataStream = resultImage.image;
+		outputPalette = resultImage.palette;
 	}
 	}
 
@@ -736,7 +770,7 @@ int main(int argc, const char** argv)
 	finalFile.colourFormat = colourFormatDesired;
 	finalFile.packedLength = packedLength;
 	finalFile.unitLength = unitLength;
-	finalFile.paletteSize = paletteSize;
+	finalFile.paletteSize = outputPalette.byte_size() / (8 / paletteBitWidth);
 	finalFile.padding1 = 0;
 	finalFile.paletteSizeBytes = outputPalette.byte_size();
 	finalFile.padding2 = 0;
